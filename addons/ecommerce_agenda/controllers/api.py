@@ -1,0 +1,286 @@
+# -*- coding: utf-8 -*-
+import json
+import uuid
+from odoo import http
+from odoo.http import request
+
+
+class EcommerceAPI(http.Controller):
+
+    # -------------------------------------------------------
+    # CONFIGURACIÓN PÚBLICA
+    # -------------------------------------------------------
+    @http.route(['/api/config', '/scentsync/api/config'], auth='public', type='http', csrf=False, methods=['GET'])
+    def get_config(self, **kwargs):
+        ICP = request.env['ir.config_parameter'].sudo()
+        store_name = ICP.get_param('ecommerce.store_name', default='Mi Tienda')
+        wa_number = ICP.get_param('ecommerce.whatsapp_number', default='')
+        ig_handle = ICP.get_param('ecommerce.instagram_handle', default='')
+        location = ICP.get_param('ecommerce.location', default='')
+        delivery_info = ICP.get_param('ecommerce.delivery_info', default='')
+        return request.make_response(
+            json.dumps({
+                'store_name': store_name,
+                'whatsapp_number': wa_number,
+                'instagram_handle': ig_handle,
+                'location': location,
+                'delivery_info': delivery_info,
+            }),
+            headers=[('Content-Type', 'application/json')]
+        )
+
+    # -------------------------------------------------------
+    # CATEGORÍAS
+    # -------------------------------------------------------
+    @http.route(['/api/categories', '/scentsync/api/families'], auth='public', type='http', csrf=False, methods=['GET'])
+    def get_categories(self, **kwargs):
+        """Devuelve las categorías activas, ordenadas por secuencia."""
+        categories = request.env['ecommerce.category'].sudo().search([('active', '=', True)])
+        result = [{'id': c.id, 'name': c.name, 'description': c.description or ''} for c in categories]
+        return request.make_response(
+            json.dumps(result),
+            headers=[('Content-Type', 'application/json')]
+        )
+
+    # -------------------------------------------------------
+    # PRODUCTOS
+    # -------------------------------------------------------
+    @http.route(['/api/products', '/scentsync/api/products'], auth='public', type='http', csrf=False, methods=['GET'])
+    def get_products(self, category_id=None, family_id=None, search=None, **kwargs):
+        """Devuelve los productos publicables filtrados por categoría y/o búsqueda."""
+        target_cat = category_id or family_id
+        domain = [
+            ('sale_ok', '=', True),
+            ('active', '=', True),
+            ('type', 'in', ['consu', 'product']),
+        ]
+        if target_cat:
+            domain.append(('ecommerce_category_ids', 'in', [int(target_cat)]))
+        if search:
+            domain.append(('name', 'ilike', search))
+
+        products = request.env['product.template'].sudo().search(domain)
+        result = []
+        for p in products:
+            c_ids = p.ecommerce_category_ids.ids if p.ecommerce_category_ids else []
+            c_names = p.ecommerce_category_ids.mapped('name') if p.ecommerce_category_ids else []
+            result.append({
+                'id': p.id,
+                'name': p.name,
+                'price': p.list_price,
+                'image_url': f'/web/image/product.template/{p.id}/image_512',
+                'category_ids': c_ids,
+                'category_names': c_names,
+                'category_id': c_ids[0] if c_ids else 0,
+                'category_name': ', '.join(c_names) if c_names else '',
+                # Aliases for frontend compatibility
+                'family_ids': c_ids,
+                'family_names': c_names,
+                'family_id': c_ids[0] if c_ids else 0,
+                'family_name': ', '.join(c_names) if c_names else '',
+                'subtitle': p.ecommerce_subtitle or '',
+                'featured': p.ecommerce_featured,
+                'description': p.description_sale or '',
+                'compare_at_price': p.ecommerce_compare_at_price or 0.0,
+                'discount_percentage': int(p.ecommerce_discount_percentage or 0),
+                'qty_available': p.qty_available or 0.0,
+            })
+        return request.make_response(
+            json.dumps(result),
+            headers=[('Content-Type', 'application/json')]
+        )
+
+    @http.route(['/api/products/<int:product_id>', '/scentsync/api/products/<int:product_id>'], auth='public', type='http', csrf=False, methods=['GET'])
+    def get_product_detail(self, product_id, **kwargs):
+        p = request.env['product.template'].sudo().browse(product_id)
+        if not p.exists():
+            return request.make_response(
+                json.dumps({'error': 'Producto no encontrado'}),
+                headers=[('Content-Type', 'application/json')],
+                status=404
+            )
+        c_ids = p.ecommerce_category_ids.ids if p.ecommerce_category_ids else []
+        c_names = p.ecommerce_category_ids.mapped('name') if p.ecommerce_category_ids else []
+        data = {
+            'id': p.id,
+            'name': p.name,
+            'price': p.list_price,
+            'image_url': f'/web/image/product.template/{p.id}/image_1920',
+            'category_ids': c_ids,
+            'category_names': c_names,
+            'category_id': c_ids[0] if c_ids else 0,
+            'category_name': ', '.join(c_names) if c_names else '',
+            'family_ids': c_ids,
+            'family_names': c_names,
+            'family_id': c_ids[0] if c_ids else 0,
+            'family_name': ', '.join(c_names) if c_names else '',
+            'subtitle': p.ecommerce_subtitle or '',
+            'description': p.description_sale or '',
+            'compare_at_price': p.ecommerce_compare_at_price or 0.0,
+            'discount_percentage': int(p.ecommerce_discount_percentage or 0),
+            'qty_available': p.qty_available or 0.0,
+        }
+        return request.make_response(
+            json.dumps(data),
+            headers=[('Content-Type', 'application/json')]
+        )
+
+    # -------------------------------------------------------
+    # CARRITO
+    # -------------------------------------------------------
+    def _get_session_id(self):
+        session_id = request.session.get('ecommerce_cart_session')
+        if not session_id:
+            session_id = str(uuid.uuid4())
+            request.session['ecommerce_cart_session'] = session_id
+        return session_id
+
+    def _cart_to_dict(self, cart_items):
+        result = []
+        for item in cart_items:
+            result.append({
+                'id': item.id,
+                'product_id': item.product_id.id,
+                'product_name': item.product_id.name,
+                'image_url': f'/web/image/product.product/{item.product_id.id}/image_512',
+                'quantity': item.quantity,
+                'price_unit': item.price_unit,
+                'subtotal': item.quantity * item.price_unit,
+                'qty_available': item.product_id.qty_available or 0.0,
+            })
+        return result
+
+    @http.route(['/api/cart', '/scentsync/api/cart'], auth='public', type='http', csrf=False, methods=['GET'])
+    def get_cart(self, **kwargs):
+        session_id = self._get_session_id()
+        items = request.env['ecommerce.cart'].sudo().search([('session_id', '=', session_id)])
+        total = sum(i.quantity * i.price_unit for i in items)
+        return request.make_response(
+            json.dumps({'items': self._cart_to_dict(items), 'total': total}),
+            headers=[('Content-Type', 'application/json')]
+        )
+
+    @http.route(['/api/cart/add', '/scentsync/api/cart/add'], auth='public', type='json', csrf=False, methods=['POST'])
+    def add_to_cart(self, product_id, quantity=1, **kwargs):
+        session_id = self._get_session_id()
+        product = request.env['product.product'].sudo().search([('product_tmpl_id', '=', int(product_id))], limit=1)
+        if not product:
+            return {'error': 'Producto no encontrado'}
+
+        if (product.qty_available or 0.0) <= 0:
+            return {'error': 'Producto sin inventario disponible'}
+
+        existing = request.env['ecommerce.cart'].sudo().search([
+            ('session_id', '=', session_id),
+            ('product_id', '=', product.id),
+        ], limit=1)
+
+        req_qty = int(quantity)
+        if req_qty < 1:
+            req_qty = 1
+
+        if existing:
+            new_qty = existing.quantity + req_qty
+            if product.qty_available > 0 and new_qty > int(product.qty_available):
+                new_qty = int(product.qty_available)
+            existing.write({'quantity': new_qty})
+        else:
+            if product.qty_available > 0 and req_qty > int(product.qty_available):
+                req_qty = int(product.qty_available)
+            request.env['ecommerce.cart'].sudo().create({
+                'session_id': session_id,
+                'product_id': product.id,
+                'quantity': req_qty,
+                'price_unit': product.lst_price,
+            })
+
+        items = request.env['ecommerce.cart'].sudo().search([('session_id', '=', session_id)])
+        total = sum(i.quantity * i.price_unit for i in items)
+        return {'success': True, 'items': self._cart_to_dict(items), 'total': total, 'count': sum(i.quantity for i in items)}
+
+    @http.route(['/api/cart/update', '/scentsync/api/cart/update'], auth='public', type='json', csrf=False, methods=['POST'])
+    def update_cart(self, cart_item_id, quantity, **kwargs):
+        session_id = self._get_session_id()
+        item = request.env['ecommerce.cart'].sudo().browse(int(cart_item_id))
+        if not item.exists() or item.session_id != session_id:
+            return {'error': 'Ítem no encontrado'}
+
+        if int(quantity) <= 0:
+            item.unlink()
+        else:
+            final_qty = int(quantity)
+            if item.product_id.qty_available > 0 and final_qty > int(item.product_id.qty_available):
+                final_qty = int(item.product_id.qty_available)
+            item.write({'quantity': final_qty})
+
+        items = request.env['ecommerce.cart'].sudo().search([('session_id', '=', session_id)])
+        total = sum(i.quantity * i.price_unit for i in items)
+        return {'success': True, 'items': self._cart_to_dict(items), 'total': total, 'count': sum(i.quantity for i in items)}
+
+    @http.route(['/api/cart/remove', '/scentsync/api/cart/remove'], auth='public', type='json', csrf=False, methods=['POST'])
+    def remove_from_cart(self, cart_item_id, **kwargs):
+        session_id = self._get_session_id()
+        item = request.env['ecommerce.cart'].sudo().browse(int(cart_item_id))
+        if item.exists() and item.session_id == session_id:
+            item.unlink()
+        items = request.env['ecommerce.cart'].sudo().search([('session_id', '=', session_id)])
+        total = sum(i.quantity * i.price_unit for i in items)
+        return {'success': True, 'items': self._cart_to_dict(items), 'total': total, 'count': sum(i.quantity for i in items)}
+
+    # -------------------------------------------------------
+    # CHECKOUT
+    # -------------------------------------------------------
+    @http.route(['/api/checkout', '/scentsync/api/checkout'], auth='public', type='json', csrf=False, methods=['POST'])
+    def checkout(self, name, phone, city='', note='', **kwargs):
+        session_id = self._get_session_id()
+        cart_items = request.env['ecommerce.cart'].sudo().search([('session_id', '=', session_id)])
+
+        if not cart_items:
+            return {'error': 'El carrito está vacío'}
+
+        partner = request.env['res.partner'].sudo().search([('phone', '=', phone)], limit=1)
+        if not partner:
+            partner = request.env['res.partner'].sudo().create({
+                'name': name,
+                'phone': phone,
+                'city': city,
+                'customer_rank': 1,
+            })
+
+        order_lines = [(0, 0, {
+            'product_id': item.product_id.id,
+            'product_uom_qty': item.quantity,
+            'price_unit': item.price_unit,
+        }) for item in cart_items]
+
+        order_note = f'Pedido recibido desde la tienda web. Ciudad: {city}'
+        if note:
+            order_note += f' | Nota: {note}'
+
+        sale_order = request.env['sale.order'].sudo().create({
+            'partner_id': partner.id,
+            'order_line': order_lines,
+            'note': order_note,
+        })
+
+        cart_items.unlink()
+
+        items_text = '\n'.join(
+            f'• {line.product_id.name} x{line.product_uom_qty} — ${line.price_unit * line.product_uom_qty:.2f}'
+            for line in sale_order.order_line
+        )
+        whatsapp_message = (
+            f'¡Hola! Soy *{name}* y deseo confirmar mi pedido:\n\n'
+            f'{items_text}\n\n'
+            f'*Total: ${sale_order.amount_total:.2f}*\n'
+            f'Ciudad: {city}\n'
+            f'Nro. de Pedido: {sale_order.name}'
+        )
+
+        return {
+            'success': True,
+            'order_id': sale_order.id,
+            'order_name': sale_order.name,
+            'total': sale_order.amount_total,
+            'whatsapp_message': whatsapp_message,
+        }

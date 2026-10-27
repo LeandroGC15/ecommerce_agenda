@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- Asset bundle de la tienda pública, separado del backend de Odoo -->
+    <template id="shop_assets" name="Ecommerce Shop Assets">
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&amp;family=Inter:wght@300;400;500;600&amp;display=swap"/>
+        <t t-call-assets="ecommerce_agenda.shop_assets" t-js="false"/>
+        <t t-call-assets="ecommerce_agenda.shop_assets" t-css="false"/>
+    </template>
+
+    <!-- Página principal de la tienda (SPA limpia sin interfaz pesada de Odoo) -->
+    <template id="shop_page" name="Ecommerce Shop">
+        &lt;!DOCTYPE html&gt;
+        <html lang="es">
+            <head>
+                <meta charset="UTF-8"/>
+                <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+                <meta name="description" content="Tienda online rápida e interactiva. Realiza tus pedidos de forma simple con checkout por WhatsApp."/>
+                <title>Tienda Virtual</title>
+                <link rel="icon" type="image/png" href="/ecommerce_agenda/static/src/img/favicon.png"/>
+                <t t-call="ecommerce_agenda.shop_assets"/>
+            </head>
+            <body>
+                <div id="ecommerce-shop-root"></div>
+            </body>
+        </html>
+    </template>
+</odoo>

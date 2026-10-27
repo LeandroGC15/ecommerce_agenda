@@ -1,0 +1,36 @@
+version: '3.8'
+
+services:
+  web:
+    image: odoo:19.0
+    container_name: odoo19_ecommerce_agenda
+    depends_on:
+      - db
+    ports:
+      - "8074:8069"
+      - "8075:8072"
+    volumes:
+      - ./config:/etc/odoo
+      - ./addons:/mnt/extra-addons
+      - odoo-ecommerce-agenda-data:/var/lib/odoo
+    env_file:
+      - .env
+    environment:
+      - HOST=db
+      - USER=odoo
+      - PASSWORD=odoo_password
+    restart: unless-stopped
+
+  db:
+    image: postgres:15
+    container_name: postgres15_ecommerce_agenda
+    environment:
+      - POSTGRES_DB=postgres
+      - POSTGRES_PASSWORD=odoo_password
+      - POSTGRES_USER=odoo
+    volumes:
+      - ./postgres:/var/lib/postgresql/data
+    restart: unless-stopped
+
+volumes:
+  odoo-ecommerce-agenda-data:

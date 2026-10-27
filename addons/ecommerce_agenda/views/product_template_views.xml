@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- Campo Categoría visible en el bloque principal del producto -->
+    <record id="ecommerce_product_template_form_view_inline" model="ir.ui.view">
+        <field name="name">product.template.form.ecommerce.inline</field>
+        <field name="model">product.template</field>
+        <field name="inherit_id" ref="product.product_template_form_view"/>
+        <field name="priority">20</field>
+        <field name="arch" type="xml">
+            <field name="name" position="after">
+                <field name="ecommerce_category_ids"
+                       widget="many2many_tags"
+                       string="Categorías Tienda"
+                       options="{'no_create': false, 'no_open': false}"
+                       placeholder="Selecciona una o más categorías para la web..."/>
+            </field>
+        </field>
+    </record>
+
+    <!-- Campos de Precios (Precio Anterior, % Descuento, Precio BCV, Ganancia) -->
+    <record id="ecommerce_product_template_form_view_pricing" model="ir.ui.view">
+        <field name="name">product.template.form.ecommerce.pricing</field>
+        <field name="model">product.template</field>
+        <field name="inherit_id" ref="product.product_template_form_view"/>
+        <field name="priority">25</field>
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='supplier_taxes_id']" position="after">
+                <field name="ecommerce_compare_at_price" string="Precio Anterior (Tachado)"/>
+                <field name="ecommerce_discount_percentage" string="% Descuento"/>
+                <field name="ecommerce_price_bcv" string="Precio BCV"/>
+                <field name="ecommerce_profit" string="Ganancia" readonly="1"/>
+            </xpath>
+        </field>
+    </record>
+
+    <!-- Tab "Tienda Web" -->
+    <record id="ecommerce_product_template_form_view" model="ir.ui.view">
+        <field name="name">product.template.form.ecommerce</field>
+        <field name="model">product.template</field>
+        <field name="inherit_id" ref="product.product_template_form_view"/>
+        <field name="arch" type="xml">
+            <notebook position="inside">
+                <page string="Tienda Web" name="ecommerce_page">
+                    <group string="Clasificación y Visibilidad">
+                        <group>
+                            <field name="ecommerce_category_ids" widget="many2many_tags" string="Categorías Web"/>
+                            <field name="ecommerce_subtitle" placeholder="Ej: Disponible en varios colores, Alta durabilidad..."/>
+                        </group>
+                        <group>
+                            <field name="ecommerce_featured" widget="boolean_toggle" string="Destacar en portada"/>
+                        </group>
+                    </group>
+                    <group string="Promociones Web">
+                        <group>
+                            <field name="ecommerce_compare_at_price"/>
+                            <field name="ecommerce_discount_percentage"/>
+                        </group>
+                        <group>
+                            <field name="ecommerce_price_bcv"/>
+                        </group>
+                    </group>
+                    <group string="Descripción para Tienda Online">
+                        <field name="description_sale" nolabel="1" placeholder="Descripción detallada del producto que verán los clientes en la tienda..."/>
+                    </group>
+                </page>
+            </notebook>
+        </field>
+    </record>
+
+</odoo>
